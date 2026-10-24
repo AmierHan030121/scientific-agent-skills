@@ -28,6 +28,10 @@ jobs:
           # 复制上游内容
           cp -r upstream/* .
           
+          # 【新增】删除不需要的文档图片和测试代码目录
+          rm -rf docs/images
+          rm -rf tests
+          
           # 物理删除不需要的 skill 目录
           cd skills
           find . -mindepth 1 -maxdepth 1 -type d \
