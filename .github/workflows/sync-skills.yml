@@ -2,11 +2,12 @@ name: Sync Selected Skills from Upstream
 
 on:
   schedule:
-    - cron: '0 0 * * *'   # 每天 UTC 0:00（北京时间 8:00）自动运行
-  workflow_dispatch:        # 也支持在 Actions 页面手动触发
+    # 每天 UTC 16:00（即北京时间 00:00）
+    - cron: '0 16 * * *'
+  workflow_dispatch: # 支持手动触发
 
 permissions:
-  contents: write           # 允许工作流向你的仓库推送
+  contents: write
 
 jobs:
   sync:
@@ -14,41 +15,37 @@ jobs:
     steps:
       - name: Checkout your repository
         uses: actions/checkout@v4
+
+      - name: Clone upstream and filter
+        run: |
+          # 1. 浅克隆上游仓库（只拉取最新一次提交，速度极快）
+          git clone --depth 1 https://github.com/K-Dense-AI/scientific-agent-skills.git upstream
+          
+          # 2. 清空当前仓库所有内容（保留 .github 目录和 .git 记录）
+          find . -mindepth 1 -maxdepth 1 ! -name '.github' ! -name '.git' ! -name 'upstream' -exec rm -rf {} +
+          
+          # 3. 将上游仓库的文件全部复制到当前仓库
+          cp -r upstream/* .
+          cp -r upstream/.[!.]* . 2>/dev/null || true # 复制隐藏文件（如果有）
+          
+          # 4. 进入 skills 目录，物理删除不需要的 skill 文件夹
+          cd skills
+          find . -mindepth 1 -maxdepth 1 -type d \
+            ! -name "literature-review" \
+            ! -name "markitdown" \
+            ! -name "scientific-brainstorming" \
+            ! -name "scientific-critical-thinking" \
+            ! -name "scientific-writing" \
+            -exec rm -rf {} +
+          
+          # 5. 返回根目录并清理克隆的临时文件夹
+          cd ..
+          rm -rf upstream
+
+      - name: Commit and push changes
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          path: target
-          fetch-depth: 0
-
-      - name: Sparse clone upstream (non-cone mode)
-        run: |
-          git clone --filter=blob:none --sparse \
-            https://github.com/K-Dense-AI/scientific-agent-skills.git upstream
-          cd upstream
-          git sparse-checkout set --no-cone \
-            '/*' \
-            '!skills/*' \
-            'skills/literature-review/' \
-            'skills/markitdown/' \
-            'skills/scientific-brainstorming/' \
-            'skills/scientific-critical-thinking/' \
-            'skills/scientific-writing/'
-
-      - name: Replace target content (keep .github)
-        run: |
-          # 清空 target 中除 .github 和 .git 之外的所有内容，保证镜像一致
-          find target -mindepth 1 -maxdepth 1 ! -name '.github' ! -name '.git' -exec rm -rf {} +
-          # 将 upstream 中除 .git 外的内容复制到 target
-          rsync -a --exclude='.git' upstream/ target/
-
-      - name: Commit and push to main
-        run: |
-          cd target
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          # 只有发生变更时才提交
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: sync selected skills from upstream"
-            git push origin main
-          else
-            echo "No changes to commit."
-          fi
+          commit_message: "chore: auto-sync selected skills from upstream"
+          branch: main
+          commit_options: '--no-verify'
+          skip_fetch: true
