@@ -2,8 +2,7 @@ name: Sync Selected Skills from Upstream
 
 on:
   schedule:
-    # 每天 UTC 16:00（即北京时间 00:00）
-    - cron: '0 16 * * *'
+    - cron: '0 16 * * *' # 每天北京时间 0:00
   workflow_dispatch: # 支持手动触发
 
 permissions:
@@ -16,22 +15,20 @@ jobs:
       - name: Checkout your repository
         uses: actions/checkout@v4
         with:
-          # 必须拉取完整历史，否则 diff 时会报 bad revision
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Clone upstream and filter
         run: |
-          # 1. 浅克隆上游仓库
           git clone --depth 1 https://github.com/K-Dense-AI/scientific-agent-skills.git upstream
           
-          # 2. 清空当前仓库所有内容（保留 .github 目录和 .git 记录）
+          # 清空当前仓库内容（保留 .github 和 .git）
           find . -mindepth 1 -maxdepth 1 ! -name '.github' ! -name '.git' ! -name 'upstream' -exec rm -rf {} +
           
-          # 3. 复制上游文件到当前仓库
+          # 复制上游内容
           cp -r upstream/* .
-          cp -r upstream/.[!.]* . 2>/dev/null || true
           
-          # 4. 进入 skills 目录，物理删除不需要的 skill 文件夹
+          # 物理删除不需要的 skill 目录
           cd skills
           find . -mindepth 1 -maxdepth 1 -type d \
             ! -name "literature-review" \
@@ -40,15 +37,22 @@ jobs:
             ! -name "scientific-critical-thinking" \
             ! -name "scientific-writing" \
             -exec rm -rf {} +
-          
-          # 5. 返回根目录并清理克隆的临时文件夹
           cd ..
+          
           rm -rf upstream
 
-      - name: Commit and push changes
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "chore: auto-sync selected skills from upstream"
-          branch: main
-          commit_options: '--no-verify'
-          skip_fetch: true
+      - name: Commit and Push (Force Auth)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add -A
+          
+          # 检查是否有变化
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore: auto-sync selected skills from upstream"
+            # 最关键的一行：直接使用 Token 构造 URL 推送，无视所有环境鉴权问题
+            git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:main
+          fi
