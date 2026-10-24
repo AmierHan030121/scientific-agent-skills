@@ -1,0 +1,54 @@
+name: Sync Selected Skills from Upstream
+
+on:
+  schedule:
+    - cron: '0 0 * * *'   # 每天 UTC 0:00（北京时间 8:00）自动运行
+  workflow_dispatch:        # 也支持在 Actions 页面手动触发
+
+permissions:
+  contents: write           # 允许工作流向你的仓库推送
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout your repository
+        uses: actions/checkout@v4
+        with:
+          path: target
+          fetch-depth: 0
+
+      - name: Sparse clone upstream (non-cone mode)
+        run: |
+          git clone --filter=blob:none --sparse \
+            https://github.com/K-Dense-AI/scientific-agent-skills.git upstream
+          cd upstream
+          git sparse-checkout set --no-cone \
+            '/*' \
+            '!skills/*' \
+            'skills/literature-review/' \
+            'skills/markitdown/' \
+            'skills/scientific-brainstorming/' \
+            'skills/scientific-critical-thinking/' \
+            'skills/scientific-writing/'
+
+      - name: Replace target content (keep .github)
+        run: |
+          # 清空 target 中除 .github 和 .git 之外的所有内容，保证镜像一致
+          find target -mindepth 1 -maxdepth 1 ! -name '.github' ! -name '.git' -exec rm -rf {} +
+          # 将 upstream 中除 .git 外的内容复制到 target
+          rsync -a --exclude='.git' upstream/ target/
+
+      - name: Commit and push to main
+        run: |
+          cd target
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          # 只有发生变更时才提交
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: sync selected skills from upstream"
+            git push origin main
+          else
+            echo "No changes to commit."
+          fi
